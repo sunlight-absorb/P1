@@ -91,9 +91,11 @@ comparison.
 
 - `MEMLENGTH` is a macro: build with `-DMEMLENGTH=65536` to test a bigger bank.
 - `memgrind` seeds `rand()` with a fixed value so the 50 runs are comparable.
-- Tasks 4 and 5 of the `memgrind` workload are ours: freeing adjacent pairs and
-  refilling the holes with double-sized objects, checking that each refill lands
-  at the address its pair was freed (a 40-byte payload cannot fit an unmerged
-  24-byte chunk, so broken coalescing would put it in the free tail instead),
-  and pushing/popping a stack of nodes whose payloads hold pointers and counters
-  (client data that looks like addresses must stay opaque to the allocator).
+- Tasks 4 and 5 of the `memgrind` workload are ours: freeing the pairs of a
+  triple while a third object stays live, so each hole is exactly 48 bytes and
+  cannot merge with its neighbours, refilling with double-sized objects, and
+  checking that each refill lands at the address its pair was freed (a 40-byte
+  payload cannot fit an unmerged 24-byte chunk, so broken coalescing would put
+  it in the free tail instead), and pushing/popping a stack of nodes whose
+  payloads hold pointers and counters (client data that looks like addresses
+  must stay opaque to the allocator).

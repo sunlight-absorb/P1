@@ -209,14 +209,14 @@ void *mymalloc(size_t size, char *file, int line)
  * routinely, so it must not stop the process. */
 void myfree(void *ptr, char *file, int line)
 {
+    if (ptr == NULL)
+        return; /* standard C: freeing nothing is not an error */
+
     if (!initialized)
-        init_heap(); /* an empty bank can only make this a bad free */
+        init_heap(); /* the bank must exist before the chunk list is walked */
 
     char *base = heap.bytes;
     char *end = base + HEAP_BYTES;
-
-    if (ptr == NULL)
-        return;
 
     if ((char *)ptr < base || (char *)ptr >= end) {
         report_bad_free(ptr, file, line, "not obtained from malloc");

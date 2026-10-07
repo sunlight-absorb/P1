@@ -5,8 +5,8 @@
  * any leak or error message means the allocator mishandled the traffic.
  *
  * Tasks 1-3 are the ones named in the writeup; tasks 4-5 are ours:
- *   4. free adjacent pairs, then refill the holes with larger objects, and
- *      check each refill landed where its pair was freed;
+ *   4. free adjacent pairs, keeping a live object after each pair, then
+ *      refill the holes and check each refill landed where its pair was;
  *   5. push/pop a stack of nodes whose payloads hold pointers and counters,
  *      so client data that looks like addresses survives untouched.
  */
@@ -87,41 +87,49 @@ static void task_random(void)
         free(p[i]);
 }
 
-/* Task 4: allocate objects in pairs, free each pair, then allocate objects
- * twice as large. A 40-byte payload needs a 48-byte chunk, exactly two merged
- * 24-byte chunks, and first fit must hand it back at the pair's own address. */
+/* Task 4: allocate (pair, spacer) triples, free only the pairs, then refill
+ * each hole with an object twice as large. A 40-byte payload needs a 48-byte
+ * chunk, exactly two merged 24-byte chunks, and the live spacer keeps each
+ * hole from merging with its neighbours, so the refill has to land where its
+ * own pair was freed. */
 static void task_pairs(void)
 {
     enum { PAIRS = 24 };
-    void *p[2 * PAIRS];
-    void *hole[PAIRS]; /* the address each pair started at */
+    void *a[PAIRS];
+    void *b[PAIRS];
+    void *spacer[PAIRS]; /* stays live, isolating one hole from the next */
+    void *hole[PAIRS];   /* the address each pair started at */
 
-    /* All 48 objects are live at once, so they sit back to back: pair i
-     * starts 48 bytes after pair i - 1. */
-    for (int i = 0; i < 2 * PAIRS; i++)
-        p[i] = checked(16);
-    for (int i = 0; i < PAIRS; i++)
-        hole[i] = p[2 * i];
-    for (int i = 0; i < 2 * PAIRS; i += 2) {
-        free(p[i]);
-        free(p[i + 1]);
+    /* 24 triples of 24-byte chunks: 1728 bytes, inside a 4096-byte bank. */
+    for (int i = 0; i < PAIRS; i++) {
+        a[i] = checked(16);
+        b[i] = checked(16);
+        spacer[i] = checked(16);
+        hole[i] = a[i];
+    }
+    for (int i = 0; i < PAIRS; i++) {
+        free(a[i]);
+        free(b[i]);
     }
 
-    /* A 40-byte payload needs a 48-byte chunk, exactly one merged pair.
-     * With the pairs merged, first fit hands these back at the addresses the
-     * pairs occupied, in order; unmerged 24-byte chunks cannot hold the
-     * payload, so first fit would reach the free tail past them instead. */
+    /* A spacer is still live between every pair, so a merged pair is a 48-byte
+     * hole and nothing more: the refill must return that pair's own address.
+     * Unmerged 24-byte chunks cannot hold a 40-byte payload, so first fit
+     * would reach the free tail past the triples instead. */
     for (int i = 0; i < PAIRS; i++) {
-        p[i] = checked(40);
-        if (p[i] != hole[i]) {
+        a[i] = checked(40);
+        if (a[i] != hole[i]) {
             fprintf(stderr,
                     "memgrind: task 4 refill at %p, expected the coalesced pair at %p\n",
-                    p[i], hole[i]);
+                    a[i], hole[i]);
             exit(EXIT_FAILURE);
         }
     }
-    for (int i = 0; i < PAIRS; i++)
-        free(p[i]);
+    /* b[i] is now inside the live 48-byte chunk and must not be freed. */
+    for (int i = 0; i < PAIRS; i++) {
+        free(a[i]);
+        free(spacer[i]);
+    }
 }
 
 /* Task 5: a stack of nodes, pushed and popped in uneven rounds. Each payload
