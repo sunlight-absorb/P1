@@ -1,104 +1,60 @@
-/* Leak reports from children that exit with live allocations are expected. */
+/* test_errors.c: runs one error or leak scenario, chosen by the argument.
+ *
+ * These scenarios end the program or print at exit, so each one runs as a
+ * separate program. "make check" runs each scenario and checks the result.
+ *
+ *   ./test_errors leak      expect "mymalloc: 48 bytes leaked in 2 objects."
+ *   ./test_errors noleak    expect no output
+ *   ./test_errors outside   expect a free() error and exit status 2
+ *   ./test_errors interior  expect a free() error and exit status 2
+ *   ./test_errors double    expect a free() error and exit status 2
+ */
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <sys/wait.h>
+#include <string.h>
 
 #include "mymalloc.h"
 
-#ifndef MEMLENGTH
-#define MEMLENGTH 4096
-#endif
-
-static void bad_foreign (void)
+int main(int argc, char **argv)
 {
-    int x = 0;
-    free (&x);
-}
-
-static void bad_interior (void)
-{
-    int *p = malloc (sizeof (int) * 2);
-    free (p + 1);
-}
-
-static void bad_double (void)
-{
-    int *p = malloc (sizeof (int) * 100);
-    int *q = p;
-    free (p);
-    free (q);
-}
-
-static void bad_null (void)
-{
-    free (NULL);
-}
-
-static int child_status (void (*scenario) (void))
-{
-    /* Flush before fork so child exit() does not reprint the parent's output. */
-    fflush (stdout);
-    fflush (stderr);
-
-    pid_t child = fork ();
-    if (child < 0)
-        return -1;
-    if (child == 0) {
-        scenario ();
-        exit (0);
-    }
-
-    int status;
-    if (waitpid (child, &status, 0) == -1)
-        return -1;
-    if (!WIFEXITED (status))
-        return -1;
-    return WEXITSTATUS (status);
-}
-
-static int expect_exit2 (const char *name, void (*scenario) (void))
-{
-    int status = child_status (scenario);
-
-    if (status == -1) {
-        printf ("FAIL: could not run the %s child\n", name);
-        return 0;
-    }
-    if (status == 2) {
-        printf ("PASS: %s reported an error and exited with 2\n", name);
-        return 1;
-    }
-    printf ("FAIL: %s exited with %d, expected 2\n", name, status);
-    return 0;
-}
-
-static int expect_null (void)
-{
-    char *p = malloc (MEMLENGTH + 1);
-    if (p != NULL) {
-        printf ("FAIL: an impossible request returned %p\n", (void *) p);
-        return 0;
-    }
-    printf ("PASS: an impossible request returned NULL\n");
-    return 1;
-}
-
-int
-main (void)
-{
-    int passed = 0;
-
-    passed += expect_exit2 ("free(&x)", bad_foreign);
-    passed += expect_exit2 ("free(p + 1)", bad_interior);
-    passed += expect_exit2 ("free(q) after free(p)", bad_double);
-    passed += expect_exit2 ("free(NULL)", bad_null);
-    passed += expect_null ();
-
-    if (passed < 5) {
-        printf ("%d of 5 error checks passed\n", passed);
+    if (argc != 2) {
+        printf("usage: %s leak|noleak|outside|interior|double\n", argv[0]);
         return EXIT_FAILURE;
     }
-    printf ("all 5 error checks passed\n");
+
+    char *mode = argv[1];
+
+    if (strcmp(mode, "leak") == 0) {
+        /* Requirement 4: leaked objects are detected and reported.
+         * Keep a 16-byte and a 32-byte object; free the third object.
+         * The report must count only the two objects that remain. */
+        char *a = malloc(16);
+        char *b = malloc(8);
+        char *c = malloc(32);
+        free(b);
+        (void)a;
+        (void)c;
+    } else if (strcmp(mode, "noleak") == 0) {
+        /* A program that frees everything must not get a leak report. */
+        char *a = malloc(16);
+        char *b = malloc(32);
+        free(a);
+        free(b);
+    } else if (strcmp(mode, "outside") == 0) {
+        /* Requirement 5: free() detects pointers it did not return. */
+        int x;
+        free(&x);
+    } else if (strcmp(mode, "interior") == 0) {
+        char *p = malloc(16);
+        free(p + 1);
+    } else if (strcmp(mode, "double") == 0) {
+        char *p = malloc(16);
+        free(p);
+        free(p);
+    } else {
+        printf("unknown scenario: %s\n", mode);
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }

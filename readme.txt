@@ -2,113 +2,98 @@ Prashanth Babu pb608
 
 
 
-Test plan
+Testing strategy
 
-Run make check to build and run all test programs.
+Run make check. This command builds all programs and runs all tests.
+If a test fails, make check stops at that test. If all tests pass, the
+last line is "check: all tests passed".
 
-The tests cover separate allocations, reuse after free(), alignment, and
-merges of adjacent free chunks. They also cover invalid free() calls,
-allocation failure, and memory leaks. A memory leak is an allocation that
-the program does not free before exit.
+The tests are in two files. tests.c tests the correct use of malloc()
+and free(). It covers requirements 1 to 3. test_errors.c runs one leak
+scenario or error scenario for each run. The argument selects the
+scenario. It covers requirements 4 and 5.
 
-For correct allocator use, the programs must preserve data and free all
-allocations. For invalid free() calls, each child process must print an
-error and exit with status 2. A child process is a separate process that
-fork() creates. This lets test_errors continue after an invalid free()
-ends the child process.
+Each requirement below has three parts: the requirement, the method that
+finds a violation, and the test that uses that method.
 
-Make sure that memtest and memtest-real each print "0 incorrect bytes".
-Make sure that the leak reports match the expected byte and object counts.
+Requirement 1
+malloc() reserves unallocated memory. When malloc() is successful, the
+object that it returns does not overlap with other allocated objects.
 
-The leak tests print expected reports to stderr, the standard error stream.
-The oversized allocation tests also print expected errors to stderr.
-Some child processes in test_errors exit with allocations that they did
-not free, so their leak reports are expected.
+The test_no_overlap test in tests.c allocates four 1000-byte objects.
+It fills object 1 with the value 1, object 2 with the value 2, object 3
+with 3, and object 4 with 4. Then it makes sure that each object still
+contains its own value. If two objects overlap, the second fill changes
+the bytes of the first object.
 
-The final message from make check is "check: all test programs passed".
-The command uses exit status to detect failures. It does not compare the
-leak reports or the byte count from memtest against expected output.
+memtest.c comes with the assignment. It does the same test with 64
+smaller objects. These objects fill the full heap. memtest must print
+"0 incorrect bytes".
+
+Requirement 2
+free() deallocates memory. After the program frees an object, malloc()
+can allocate that memory again.
+
+The test_free_deallocates test in tests.c allocates a 3000-byte object
+and frees it. It does this 10 times. The 4096-byte heap holds only one
+3000-byte object. If free() does not release the memory, the second
+malloc() call fails.
+
+Requirement 3
+free() coalesces adjacent free chunks. That is, free() merges two free
+chunks that are next to each other into one chunk. To find a violation,
+the program frees two adjacent objects. Then it requests a size that is
+too large for each chunk alone. The request is successful only if free()
+merged the two chunks.
+
+The test_coalesce test in tests.c allocates four 1000-byte objects.
+These objects almost fill the heap. The test frees the two middle
+objects and requests 2000 bytes. This request is successful only if the
+two free chunks merged.
+
+Then the test frees all objects and requests 4088 bytes. This size is
+the heap size minus one 8-byte header. This request is successful only
+if all chunks merged into one chunk again.
+
+Requirement 4
+The allocator finds leaked objects and reports them. When the program
+exits, the allocator prints the number of objects that the program did
+not free. It also prints the total size of these objects. If the
+program freed all objects, the allocator prints nothing.
+
+The command ./test_errors leak allocates 16, 8, and 32 bytes. It frees
+the 8-byte object and then exits. The output must be
+"mymalloc: 48 bytes leaked in 2 objects."
+
+The command ./test_errors noleak allocates two objects, frees the two
+objects, and exits. The program must print nothing.
+
+Requirement 5
+free() finds pointers that it cannot free. In that case, free() prints
+"free: Inappropriate pointer" with the file name and the line number.
+Then free() stops the program with exit status 2.
+
+Three commands test this requirement. Each command must exit with
+status 2. ./test_errors outside frees the address of a local variable.
+./test_errors interior frees a pointer to the middle of an object.
+./test_errors double frees the same object two times.
+
+The interior scenario stops before it can free its object. Thus, its
+leak report "16 bytes leaked in 1 objects" is correct.
+
+Shared heap
+tests.c runs all its tests in one process. Thus, all tests use the same
+heap. The free() test runs first, when the heap is new. If one test
+fails, the tests after it can also fail. In that case, start with the
+first FAIL line.
+
+make check runs memgrind last. memgrind is the performance program. It
+is not a test.
 
 
 
 
-Test programs
-
-None of the test programs use command-line arguments.
-
-The names after make are Makefile targets, not arguments to the test
-programs. A target tells make which program to build or which action to
-run. A build command does not run the program unless its target also
-includes that action.
-
-make builds the main test programs. It does not build memtest-real or
-memtest-leak.
-
-make memtest-real builds the version that uses the standard C allocator.
-The command ./memtest-real runs that program without arguments.
-
-make memtest-leak builds the version that deliberately leaves allocations
-without a free() call. The command ./memtest-leak runs that program
-without arguments.
-
-make check builds and runs all test programs, including both versions.
-The name check is a Makefile target, not a separate test program.
-
-For the other test programs, the build target matches the program name.
-For example, make memtest builds memtest. The command ./memtest runs it
-without arguments.
-
-memtest
-This program allocates 64 objects with 56 bytes each. With the 8-byte
-headers, these objects fill the default 4096-byte heap. The program writes
-a different byte value into each object. It then compares every byte with
-the expected value and frees all objects. Incorrect bytes can indicate
-that allocations overlap or that the allocator changed program data.
-
-memtest-real
-This version of memtest uses the standard C allocator instead of mymalloc.
-It provides a comparison for the byte-pattern test. The Makefile builds
-it from memtest.c with -DREALMALLOC.
-
-memtest-leak
-This version of memtest does not free its 64 objects. The expected exit
-report is "mymalloc: 3584 bytes leaked in 64 objects." The Makefile builds
-it from memtest.c with -DLEAK.
-
-test_free_reuse
-This program allocates three 128-byte objects and fills each with a
-different byte value. It frees the middle object and requests another
-128-byte object. The new object must use the same address as the freed
-object. The test also makes sure that writes to the new object do not
-change either neighboring object.
-
-test_coalesce
-Coalescing means that the allocator merges adjacent free chunks into one
-larger free chunk. This program frees three adjacent objects between two
-objects that remain allocated. It requests 192 bytes, which fit in the
-merged space but not in any one of the original chunks. The returned
-pointer must match the start of that space. After all objects are free,
-a request for 4088 bytes must use the whole default heap except its header.
-
-test_alignment
-This program requests 0, 1, 7, 8, 9, 20, 24, and 100 bytes. Each returned
-address must be a multiple of 8. The distance between consecutive
-allocations must equal the rounded payload size plus the 8-byte header.
-The zero-byte request must reserve an 8-byte payload. A request for more
-than the heap size must return NULL.
-
-test_errors
-This program runs each invalid free() call in a child process. The cases
-include a pointer to a local variable, a pointer inside an allocation,
-a second free() of the same allocation, and free(NULL). Each child must
-exit with status 2. A separate case makes sure that a request for more
-than the heap size returns NULL. If all cases pass, the program reports
-five successful checks.
-
-test_leak
-This program requests 10, 20, and 30 bytes, then frees only the middle
-object. The allocator rounds the remaining payloads to 16 and 32 bytes.
-The expected exit report is "mymalloc: 48 bytes leaked in 2 objects."
+Performance program
 
 memgrind
 This program runs five tasks in sequence, then repeats that sequence
