@@ -1,16 +1,3 @@
-/*
- * memgrind.c -- stress the allocator. A five-task workload runs 50 times and
- * the average time per run is reported. Every task frees everything it
- * allocates, so the bank should be back to a single free chunk between runs;
- * any leak or error message means the allocator mishandled the traffic.
- *
- * Tasks 1-3 are the ones named in the writeup; tasks 4-5 are ours:
- *   4. free adjacent pairs, keeping a live object after each pair, then
- *      refill the holes and check each refill landed where its pair was;
- *   5. push/pop a stack of nodes whose payloads hold pointers and counters,
- *      so client data that looks like addresses survives untouched.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,10 +6,8 @@
 #include "mymalloc.h"
 
 #define RUNS  50
-#define SMALL 120 /* simultaneous small objects in tasks 2 and 3 */
+#define SMALL 120
 
-/* The workload is correct code: a failed allocation is a bug in the
- * allocator or a bank that is too small, so stop and say so. */
 static void *checked(size_t size)
 {
     void *p = malloc(size);
@@ -40,7 +25,6 @@ static double elapsed(struct timeval start, struct timeval stop)
            + (double)(stop.tv_usec - start.tv_usec) / 1000000.0;
 }
 
-/* Task 1: one object of each size, freed in reverse order. */
 static void task_sizes(void)
 {
     static const size_t sizes[] = {8, 16, 32, 64, 128, 512, 1024};
@@ -53,7 +37,6 @@ static void task_sizes(void)
         free(p[i]);
 }
 
-/* Task 2: SMALL small objects, freed in the order they were allocated. */
 static void task_sequential(void)
 {
     void *p[SMALL];
@@ -64,8 +47,6 @@ static void task_sequential(void)
         free(p[i]);
 }
 
-/* Task 3: repeatedly choose between allocating a 1-byte object and freeing a
- * random live object; once SMALL allocations have happened, free the rest. */
 static void task_random(void)
 {
     void *p[SMALL];
@@ -79,7 +60,7 @@ static void task_random(void)
         } else {
             int i = rand() % live;
             free(p[i]);
-            p[i] = p[live - 1]; /* the hole in the array takes the last slot */
+            p[i] = p[live - 1];
             live--;
         }
     }
@@ -87,20 +68,14 @@ static void task_random(void)
         free(p[i]);
 }
 
-/* Task 4: allocate (pair, spacer) triples, free only the pairs, then refill
- * each hole with an object twice as large. A 40-byte payload needs a 48-byte
- * chunk, exactly two merged 24-byte chunks, and the live spacer keeps each
- * hole from merging with its neighbours, so the refill has to land where its
- * own pair was freed. */
 static void task_pairs(void)
 {
     enum { PAIRS = 24 };
     void *a[PAIRS];
     void *b[PAIRS];
-    void *spacer[PAIRS]; /* stays live, isolating one hole from the next */
-    void *hole[PAIRS];   /* the address each pair started at */
+    void *spacer[PAIRS];
+    void *hole[PAIRS];
 
-    /* 24 triples of 24-byte chunks: 1728 bytes, inside a 4096-byte bank. */
     for (int i = 0; i < PAIRS; i++) {
         a[i] = checked(16);
         b[i] = checked(16);
@@ -112,10 +87,8 @@ static void task_pairs(void)
         free(b[i]);
     }
 
-    /* A spacer is still live between every pair, so a merged pair is a 48-byte
-     * hole and nothing more: the refill must return that pair's own address.
-     * Unmerged 24-byte chunks cannot hold a 40-byte payload, so first fit
-     * would reach the free tail past the triples instead. */
+    /* Live spacers isolate each 48-byte hole; a 40-byte request only fits
+     * there if its two 24-byte chunks coalesced. */
     for (int i = 0; i < PAIRS; i++) {
         a[i] = checked(40);
         if (a[i] != hole[i]) {
@@ -132,9 +105,6 @@ static void task_pairs(void)
     }
 }
 
-/* Task 5: a stack of nodes, pushed and popped in uneven rounds. Each payload
- * holds a pointer and a counter, which the allocator must treat as opaque
- * data: it never inspects a payload to find the next chunk. */
 static void task_stack(void)
 {
     struct node {
@@ -169,7 +139,7 @@ int main(void)
 {
     struct timeval start, stop;
 
-    srand(20261007); /* a fixed seed keeps the runs comparable */
+    srand(20261007);
 
     gettimeofday(&start, NULL);
     for (int run = 0; run < RUNS; run++) {

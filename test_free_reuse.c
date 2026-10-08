@@ -1,16 +1,3 @@
-/*
- * Requirement: free() returns space to the pool, and that space is reusable
- * without disturbing live neighbours.
- *
- * Detection: after freeing the middle of three adjacent objects, an
- * identically sized request must be served from that hole (first fit finds
- * it before the untouched tail of the bank), and writing through the new
- * object must leave the neighbours' byte patterns intact.
- *
- * Test: allocate three objects, fill each with a distinct pattern, free the
- * middle one, allocate again, and check both the address and the patterns.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

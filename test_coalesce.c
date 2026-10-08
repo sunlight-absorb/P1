@@ -1,26 +1,8 @@
-/*
- * Requirement: free() coalesces adjacent free chunks, and malloc() can use
- * the merged space.
- *
- * Detection: the chunks partition the bank, so a request larger than any
- * single object can only be satisfied from space that was merged. The
- * returned pointer must also land inside the region that was freed.
- *
- * Test: allocate five objects, free the middle three, then ask for an
- * object larger than three of them. First fit can only answer it from the
- * coalesced hole, whose start is the first freed object. Then free the rest
- * and ask for the whole bank, which only fits if every chunk merged back
- * into one; that request must be served at the very start of the bank, the
- * address the first object of this run occupies.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "mymalloc.h"
 
-/* The bank this test runs against; build with -DMEMLENGTH=... to change it,
- * which resizes the library and this test together. */
 #ifndef MEMLENGTH
 #define MEMLENGTH 4096
 #endif
@@ -43,7 +25,6 @@ main (void)
         }
     }
 
-    /* Three adjacent objects become one hole of 3 * (OBJ + header) bytes. */
     free (obj[1]);
     free (obj[2]);
     free (obj[3]);
@@ -60,8 +41,6 @@ main (void)
         failures++;
     }
 
-    /* Everything is free now, so the bank must be one chunk again: the
-     * largest request it can serve is the bank minus one header. */
     free (obj[0]);
     free (obj[4]);
     free (big);
@@ -71,8 +50,6 @@ main (void)
         printf ("FAIL: the whole bank was not coalesced into one chunk\n");
         failures++;
     } else if (whole != obj[0]) {
-        /* A fresh bank starts with its header, so the first payload of this
-         * run marks the start of the bank. */
         printf ("FAIL: whole-bank chunk started at %p, expected %p\n",
                 (void *) whole, (void *) obj[0]);
         failures++;
